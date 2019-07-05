@@ -9,7 +9,7 @@ import math
 
 STATE_SHAPE = (4,)
 ACTION_SIZE = 2
-BATCG_SIZE = 1500
+BATCH_SIZE = 1500
 LEARNING_RATE = 0.001
 EPOCHS = 600
 number = 50000
@@ -97,11 +97,11 @@ def main():
     base_model = baseline_model()
     small_model = smaller_model()
     big_model = bigger_model()
-    base_his=base_model.fit(train_states, train_output, epochs=EPOCHS,batch_size=BATCG_SIZE,
+    base_his=base_model.fit(train_states, train_output, epochs=EPOCHS,batch_size=BATCH_SIZE,
                             validation_split=0.2, verbose=2)
-    small_his=small_model.fit(train_states,train_output,epochs=EPOCHS,batch_size=BATCG_SIZE,
+    small_his=small_model.fit(train_states,train_output,epochs=EPOCHS,batch_size=BATCH_SIZE,
                               validation_split=0.2, verbose=2)
-    big_his = big_model.fit(train_states, train_output, epochs=EPOCHS, batch_size=BATCG_SIZE,
+    big_his = big_model.fit(train_states, train_output, epochs=EPOCHS, batch_size=BATCH_SIZE,
                               validation_split=0.2, verbose=2)
 
     plot_history([('baseline', base_his), ('smaller', small_his), ('bigger', big_his)])
