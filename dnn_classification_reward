@@ -1,0 +1,73 @@
+import gym
+import numpy as np
+import tensorflow as tf
+from keras.models import Sequential
+from keras.layers import Dense
+from keras.optimizers import Adam
+import math
+
+STATE_SHAPE = (4,)
+ACTION_SIZE = 2
+LEARNING_RATE = 0.001
+
+def make_model():
+    model = Sequential()
+    model.add(Dense(32, input_shape=STATE_SHAPE, activation="relu"))
+    model.add(Dense(32, activation="relu"))
+    model.add(Dense(ACTION_SIZE, activation=tf.nn.softmax))
+    model.compile(loss='sparse_categorical_crossentropy', optimizer=Adam(lr=LEARNING_RATE),metrics=['accuracy'])
+    return model
+
+def check_terminal(x, rewards, states):
+  # Check ternimal conditions: |3rd element| > 12 degree or |1st element| >2.4
+  b = [a for a in range(len(rewards)) if rewards[a] == x]
+  for i in range(len(b)):
+    if abs(states[b[i]][0]) <= 2.4 and abs(states[b[i]][2]) <= 12 * 2 * math.pi / 360:
+      print("State doesn't match reward")
+      break
+  print("States match rewards")
+
+
+def change_to_label(rewards):
+    # Change reward -100 to label 0 and reward 1 to label 1
+    for i in range(len(rewards)):
+        if rewards[i] == -100:
+            rewards[i] = 0
+    return rewards
+
+# Initial settings
+number = 5000
+states = np.zeros((number, 4))
+rewards = []
+
+# Create and reset the Cartpole env:
+env = gym.make('CartPole-v1')
+state = env.reset()
+# Generate training & test set
+for i in range(number):
+      # Random action
+    action = env.action_space.sample()
+    next_state, reward, is_terminal, _ = env.step(action)
+    states[i] = next_state
+    state = next_state
+
+    if is_terminal:
+        reward = -100
+        state = env.reset()
+    rewards.append(reward)
+
+# Check and split date set into training and testing
+check_terminal(-100, rewards, states)
+rewards = change_to_label(rewards)
+train_states = states[0:round(number*0.8)]
+train_output = rewards[0:round(number*0.8)]
+test_states = states[round(number*0.8)+1:number]
+test_output = rewards[round(number*0.8)+1:number]
+# Check distribution of rewards in both data sets
+perc_train = train_output.count(0) / len(train_output)
+perc_test = test_output.count(0) / len(test_output)
+print('The proportion of reward -100 in train_set and test_set are', perc_train, 'and', perc_test, 'respectively.')
+model = make_model()
+model.fit(train_states, train_output, epochs=10, verbose=0)
+test_loss, test_acc = model.evaluate(test_states,test_output)
+print('Test accuracy:', test_acc)
