@@ -6,36 +6,68 @@ from keras.layers import Dense
 from keras.optimizers import Adam
 import matplotlib.pyplot as plt
 import math
+from keras.layers import Dropout
+from keras.layers import regularizers
 
 STATE_SHAPE = (4,)
 ACTION_SIZE = 2
-BATCH_SIZE = 1500
-LEARNING_RATE = 0.001
-EPOCHS = 600
-number = 50000
+BATCH_SIZE = 1000
+EPOCHS = 300
+VALIDATION_SPLIT = 0.2
+number = 5000
 
-def baseline_model():
+def baseline_model(LEARNING_RATE):
     model = Sequential()
     model.add(Dense(64, input_shape=STATE_SHAPE, activation="relu"))
     model.add(Dense(64, activation="relu"))
     model.add(Dense(1))
-    model.compile(loss='mean_squared_error', optimizer=Adam(lr=LEARNING_RATE))
+    model.compile(loss='mean_squared_error', optimizer=Adam(lr=LEARNING_RATE),metrics=['mae'])
     return model
 
-def smaller_model():
+def smaller_model(LEARNING_RATE):
     model = Sequential()
     model.add(Dense(10, input_shape=STATE_SHAPE, activation="relu"))
     model.add(Dense(10, activation="relu"))
     model.add(Dense(1))
-    model.compile(loss='mean_squared_error', optimizer=Adam(lr=LEARNING_RATE))
+    model.compile(loss='mean_squared_error', optimizer=Adam(lr=LEARNING_RATE),metrics=['mae'])
     return model
 
-def bigger_model():
+def bigger_model(LEARNING_RATE):
     model = Sequential()
-    model.add(Dense(400, input_shape=STATE_SHAPE, activation="relu"))
-    model.add(Dense(400, activation="relu"))
+    model.add(Dense(700, input_shape=STATE_SHAPE, activation="relu"))
+    model.add(Dense(700, activation="relu"))
+    model.add(Dense(700, activation="relu"))
+    model.add(Dense(700, activation="relu"))
+    model.add(Dense(700, activation="relu"))
     model.add(Dense(1))
-    model.compile(loss='mean_squared_error', optimizer=Adam(lr=LEARNING_RATE))
+    model.compile(loss='mean_squared_error', optimizer=Adam(lr=LEARNING_RATE),metrics=['mae'])
+    return model
+
+def l1_model(LEARNING_RATE):
+    model = Sequential()
+    model.add(Dense(700, kernel_regularizer=regularizers.l1(0.001), input_shape=STATE_SHAPE, activation="relu"))
+    model.add(Dense(700, kernel_regularizer=regularizers.l1(0.001), activation="relu"))
+    model.add(Dense(700, kernel_regularizer=regularizers.l1(0.001), activation="relu"))
+    model.add(Dense(700, kernel_regularizer=regularizers.l1(0.001), activation="relu"))
+    model.add(Dense(700, kernel_regularizer=regularizers.l1(0.001), activation="relu"))
+    model.add(Dense(1))
+    model.compile(loss='mean_squared_error', optimizer=Adam(lr=LEARNING_RATE), metrics=['mae'])
+    return model
+
+def dpt_model(LEARNING_RATE):
+    model = Sequential()
+    model.add(Dense(700, input_shape=STATE_SHAPE, activation="relu"))
+    model.add(Dropout(0.5))
+    model.add(Dense(700, activation="relu"))
+    model.add(Dropout(0.5))
+    model.add(Dense(700, activation="relu"))
+    model.add(Dropout(0.5))
+    model.add(Dense(700, activation="relu"))
+    model.add(Dropout(0.5))
+    model.add(Dense(700, activation="relu"))
+    model.add(Dropout(0.5))
+    model.add(Dense(1))
+    model.compile(loss='mean_squared_error', optimizer=Adam(lr=LEARNING_RATE), metrics=['mae'])
     return model
 
 def plot_history(histories, key='loss'):
@@ -54,21 +86,24 @@ def plot_history(histories, key='loss'):
   plt.xlim([0,max(history.epoch)])
 
 
-def check(x, rewards, states):
-  #   Check ternimal conditions: |3rd element| > 12 degree? or |1st element| >2.4?
+def check_terminal(x, rewards, states):
+  # Check ternimal conditions: |3rd element| > 12 degree or |1st element| >2.4
   b = [a for a in range(len(rewards)) if rewards[a] == x]
   for i in range(len(b)):
     if abs(states[b[i]][0]) <= 2.4 and abs(states[b[i]][2]) <= 12 * 2 * math.pi / 360:
       print("State doesn't match reward")
       break
+  print("States match rewards")
 
 
-def calMSE(pred, output):
-  return sum((pred[i] - output[i])**2 for i in range(len(output)))
-
+def frange(start, stop, step):
+     i = start
+     while i < stop:
+         yield i
+         i += step
 
 def main():
-
+    # Initialisation
     states = np.zeros((number, 4))
     rewards = []
 
@@ -77,7 +112,7 @@ def main():
     state = env.reset()
     # Generate training & test set
     for i in range(number):
-      # Random action
+      # Random actions
         action = env.action_space.sample()
         next_state, reward, is_terminal, _ = env.step(action)
         states[i] = next_state
@@ -89,29 +124,44 @@ def main():
         rewards.append(reward)
 
     # Check and split date set into training and testing
-    check(-100, rewards, states)
+    check_terminal(-100, rewards, states)
     train_states = states[0:round(number*0.8)]
     train_output = rewards[0:round(number*0.8)]
     test_states = states[round(number*0.8)+1:number]
     test_output = rewards[round(number*0.8)+1:number]
-    base_model = baseline_model()
-    small_model = smaller_model()
-    big_model = bigger_model()
-    base_his=base_model.fit(train_states, train_output, epochs=EPOCHS,batch_size=BATCH_SIZE,
-                            validation_split=0.2, verbose=2)
-    small_his=small_model.fit(train_states,train_output,epochs=EPOCHS,batch_size=BATCH_SIZE,
-                              validation_split=0.2, verbose=2)
-    big_his = big_model.fit(train_states, train_output, epochs=EPOCHS, batch_size=BATCH_SIZE,
-                              validation_split=0.2, verbose=2)
+    # Check distribution of rewards in both data sets
+    perc_train = train_output.count(-100) / len(train_output)
+    perc_test = test_output.count(-100) / len(test_output)
+    print('The proportion of reward -100 in train_set and test_set are', perc_train, 'and', perc_test, 'respectively.')
+    # Try different learning rates
+    for LEARNING_RATE in frange(0.001, 0.004, 0.001):
+        base_model = baseline_model(LEARNING_RATE)
+        small_model = smaller_model(LEARNING_RATE)
+        big_model = bigger_model(LEARNING_RATE)
+        L1_model = l1_model(LEARNING_RATE)
+        dropout_model = dpt_model(LEARNING_RATE)
+        base_his=base_model.fit(train_states, train_output, epochs=EPOCHS,batch_size=BATCH_SIZE,
+                            validation_split=VALIDATION_SPLIT, verbose=0)
+        small_his=small_model.fit(train_states,train_output,epochs=EPOCHS,batch_size=BATCH_SIZE,
+                              validation_split=VALIDATION_SPLIT, verbose=0)
+        big_his = big_model.fit(train_states, train_output, epochs=EPOCHS, batch_size=BATCH_SIZE,
+                              validation_split=VALIDATION_SPLIT, verbose=2)
+        l1_his = L1_model.fit(train_states, train_output, epochs=EPOCHS, batch_size=BATCH_SIZE,
+                              validation_split=VALIDATION_SPLIT, verbose=2)
+        dropdout_his = dropout_model.fit(train_states, train_output, epochs=EPOCHS, batch_size=BATCH_SIZE,
+                              validation_split=VALIDATION_SPLIT, verbose=2)
 
-    plot_history([('baseline', base_his), ('smaller', small_his), ('bigger', big_his)])
 
-    pred = big_model.predict(test_states)
-    error = pred - test_output
-    plt.figure()
-    plt.hist(error)
-    plt.xlabel('Prediction Error-bigger model')
-    _ = plt.ylabel('Count')
+        plot_history([('baseline', base_his), ('smaller', small_his), ('bigger', big_his)])
+        plot_history([('l1_model', l1_his), ('dropout_model', dropdout_his), ('bigger', big_his)])
+
+
+        pred = big_model.predict(test_states)
+        error = pred - test_output
+        plt.figure()
+        plt.hist(error)
+        plt.xlabel('Prediction Error-bigger model')
+        _ = plt.ylabel('Count')
 
 
 if __name__ == "__main__":
