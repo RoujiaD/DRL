@@ -14,7 +14,7 @@ ACTION_SIZE = 2
 BATCH_SIZE = 1000
 EPOCHS = 300
 VALIDATION_SPLIT = 0.2
-number = 5000
+number = 3000
 
 def baseline_model(LEARNING_RATE):
     model = Sequential()
@@ -34,37 +34,37 @@ def smaller_model(LEARNING_RATE):
 
 def bigger_model(LEARNING_RATE):
     model = Sequential()
-    model.add(Dense(700, input_shape=STATE_SHAPE, activation="relu"))
-    model.add(Dense(700, activation="relu"))
-    model.add(Dense(700, activation="relu"))
-    model.add(Dense(700, activation="relu"))
-    model.add(Dense(700, activation="relu"))
+    model.add(Dense(512, input_shape=STATE_SHAPE, activation="relu"))
+    model.add(Dense(512, activation="relu"))
+    model.add(Dense(512, activation="relu"))
+    model.add(Dense(512, activation="relu"))
+    model.add(Dense(512, activation="relu"))
     model.add(Dense(1))
     model.compile(loss='mean_squared_error', optimizer=Adam(lr=LEARNING_RATE),metrics=['mae'])
     return model
 
 def l1_model(LEARNING_RATE):
     model = Sequential()
-    model.add(Dense(700, kernel_regularizer=regularizers.l1(0.001), input_shape=STATE_SHAPE, activation="relu"))
-    model.add(Dense(700, kernel_regularizer=regularizers.l1(0.001), activation="relu"))
-    model.add(Dense(700, kernel_regularizer=regularizers.l1(0.001), activation="relu"))
-    model.add(Dense(700, kernel_regularizer=regularizers.l1(0.001), activation="relu"))
-    model.add(Dense(700, kernel_regularizer=regularizers.l1(0.001), activation="relu"))
+    model.add(Dense(512, kernel_regularizer=regularizers.l1(0.001), input_shape=STATE_SHAPE, activation="relu"))
+    model.add(Dense(512, kernel_regularizer=regularizers.l1(0.001), activation="relu"))
+    model.add(Dense(512, kernel_regularizer=regularizers.l1(0.001), activation="relu"))
+    model.add(Dense(512, kernel_regularizer=regularizers.l1(0.001), activation="relu"))
+    model.add(Dense(512, kernel_regularizer=regularizers.l1(0.001), activation="relu"))
     model.add(Dense(1))
     model.compile(loss='mean_squared_error', optimizer=Adam(lr=LEARNING_RATE), metrics=['mae'])
     return model
 
 def dpt_model(LEARNING_RATE):
     model = Sequential()
-    model.add(Dense(700, input_shape=STATE_SHAPE, activation="relu"))
+    model.add(Dense(512, input_shape=STATE_SHAPE, activation="relu"))
     model.add(Dropout(0.5))
-    model.add(Dense(700, activation="relu"))
+    model.add(Dense(512, activation="relu"))
     model.add(Dropout(0.5))
-    model.add(Dense(700, activation="relu"))
+    model.add(Dense(512, activation="relu"))
     model.add(Dropout(0.5))
-    model.add(Dense(700, activation="relu"))
+    model.add(Dense(512, activation="relu"))
     model.add(Dropout(0.5))
-    model.add(Dense(700, activation="relu"))
+    model.add(Dense(512, activation="relu"))
     model.add(Dropout(0.5))
     model.add(Dense(1))
     model.compile(loss='mean_squared_error', optimizer=Adam(lr=LEARNING_RATE), metrics=['mae'])
