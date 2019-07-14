@@ -413,7 +413,7 @@ def main():
             reward_pred = None
 
 
-        # Asking for reward, here we assume we know how to judge the reward!!!!!!!
+        # Asking for reward, here we assume we know how to judge the reward
         if IfAsk:
             if is_terminal:
                 reward_pred = -100
