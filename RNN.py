@@ -6,7 +6,7 @@ from keras.optimizers import Adam
 
 # State and action sizes *for this particular environment*. These are constants (fixed throughout), so USE_CAPS
 STATE_SHAPE = (4,) # This is the shape after pre-processing: "state = np.array([state])"
-ACTION_SIZE = 3
+REWAED_SIZE = 3
 # RNN
 LEARNING_RATE=0.001
 EPOCHS = 20
@@ -21,7 +21,7 @@ class RNNmodel:
 
     def __init__(self):
         self.state_shape = STATE_SHAPE
-        self.action_size = ACTION_SIZE
+        self.action_size = REWAED_SIZE
 
 
     def make_RNNmodel(self):
@@ -61,7 +61,7 @@ class RNNmodel:
     def train_RNNmodel(self, train_states, train_rewards, model):
         # Change reward -100 to label 0 and reward 1 to label 1
         rewards_label = self.change_to_label(train_rewards)
-        history = model.fit(train_states, rewards_label, epochs=EPOCHS, verbose=0)
+        history = model.fit(train_states, rewards_label, epochs=EPOCHS, verbose=0,batch_size= 100)
         return model, history
 
     def test_RNNmodel(self, test_states, test_output, model):

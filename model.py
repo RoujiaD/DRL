@@ -9,7 +9,10 @@ import numpy as np
 import keras
 from keras import layers
 from keras.models import Model
-import math
+import tensorflow as tf
+from keras.models import Sequential
+from keras.layers import Dense
+from keras.optimizers import Adam
 import matplotlib.pyplot as plt
 
 # TODO: Try different loss (mse?) and optimiser (RMSPprop?)
@@ -19,6 +22,76 @@ import matplotlib.pyplot as plt
 # State and action sizes *for this particular environment*. These are constants (fixed throughout), so USE_CAPS
 STATE_SHAPE = (4,) # This is the shape after pre-processing: "state = np.array([state])"
 ACTION_SIZE = 2
+# RNN
+LEARNING_RATE=0.001
+EPOCHS = 20
+VALIDATION_SPLIT = 0.2
+number_of_RNNmodels = 10
+number = 1000
+
+
+
+class RNNmodel:
+
+    def __init__(self):
+        self.state_shape = STATE_SHAPE
+        self.action_size = ACTION_SIZE
+
+
+    def make_RNNmodel(self):
+
+        model = Sequential()
+        model.add(Dense(32, input_shape=self.state_shape, activation="relu"))
+        model.add(Dense(32, activation="relu"))
+        model.add(Dense(32, activation="relu"))
+        model.add(Dense(self.action_size, activation=tf.nn.softmax))
+        model.compile(loss='sparse_categorical_crossentropy', optimizer=Adam(lr=LEARNING_RATE),metrics=['accuracy'])
+        return model
+
+    def change_to_label(self, rewards):
+        rewards_label = np.ones((len(rewards), 1))
+        for i in range(len(rewards)):
+            if rewards[i] == -100:
+                rewards_label[i] = 0
+        return rewards_label
+
+    def change_to_single(self, output):
+        y = np.ones((len(output), 1))
+        for i in range(len(output)):
+            if output[i][0] > 0.5:
+                y[i] = -100
+        return y
+
+    def predict_RNNmodel(self, test_states, RNNmodel):
+        predict_label = RNNmodel.predict(np.array([test_states]))
+        prediction = self.change_to_single(predict_label)[0][0]
+        return prediction
+
+    def train_RNNmodel(self, train_states, train_rewards, model):
+        # Change reward -100 to label 0 and reward 1 to label 1
+        rewards_label = self.change_to_label(train_rewards)
+        history = model.fit(train_states, rewards_label, epochs=EPOCHS, verbose=0)
+        return model, history
+
+    def test_RNNmodel(self, test_states, test_output, model):
+        output_label = self.change_to_label(test_output)
+        test_loss, test_acc = model.evaluate(test_states, output_label,verbose=0)
+        return test_acc, test_loss
+
+
+def plot_history(histories, key='sparse_categorical_crossentropy'):
+  plt.figure()
+
+  for name, history in histories:
+
+    plt.plot(history.epoch, history.history[key], label=name.title()+' Train')
+
+  plt.xlabel('Epochs')
+  plt.ylabel(key.replace('_',' ').title())
+  plt.legend()
+
+  plt.xlim([0,max(history.epoch)])
+
 
 
 def make_model():
@@ -104,8 +177,10 @@ def add_to_memory(index, mem_states, mem_actions, mem_rewards, mem_terminal, nex
     mem_terminal.append(is_terminal, index)  # Whether or not the new state is terminal
 
 
-def q_iteration(steps, env, model, target_model, iteration, current_state,
-                mem_states, mem_actions, mem_rewards, mem_terminal, mem_size, score, scores):
+def q_iteration(env, model, target_model, iteration, current_state,
+                mem_states, mem_actions, mem_rewards, mem_terminal, mem_size, score, scores, rnnModel, RNNmodel_1,
+                RNNmodel_2, RNNmodel_3, RNNmodel_4, RNNmodel_5, RNNmodel_6, RNNmodel_7, RNNmodel_8, RNNmodel_9,
+                                                   RNNmodel_10, Ask_number,correct_pred):
     """
     Do one iteration of acting then learning
     """
@@ -116,32 +191,52 @@ def q_iteration(steps, env, model, target_model, iteration, current_state,
         action = env.action_space.sample()
     else:
         action = choose_best_action(model, start_state)
+
     # Play one game iteration: TODO: According to the paper, you should actually play 4 times here
-    next_state, reward, is_terminal, _ = env.step(action)
-    steps += 1
+    next_state, _, is_terminal, _ = env.step(action)
     next_state = np.array([next_state])[0, :]  # Process state so that it's a numpy array, shape (4,)
-    # Reward shaping
-    if abs(next_state[0]) <= 1.2 and abs(next_state[2]) <= 6*2*math.pi/360:
-        reward = 2
-    if is_terminal:
-        reward = -100
-    score += reward
+    # Use RNN to predict reward
+
+    IfAsk = False
+    predictions = []
+    for j in range(number_of_RNNmodels):
+        prediction = rnnModel.predict_RNNmodel(next_state, globals()['RNNmodel_{}'.format(j + 1)])
+        predictions.append(prediction)
+    if predictions.count(1) == number_of_RNNmodels:
+        reward_pred = 1
+    elif predictions.count(-100) == number_of_RNNmodels:
+        reward_pred = -100
+    else:
+        IfAsk = True
+        reward_pred = None
+
+    # Retrain the RNNmodels
+    if IfAsk:
+        if is_terminal:
+            reward_pred = -100
+        else:
+            reward_pred = 1
+        if (predictions.count(1) > predictions.count(-100)) & (reward_pred == 1):
+            correct_pred += 1
+        elif (predictions.count(-100) > predictions.count(1)) & (reward_pred == -100):
+            correct_pred += 1
+        for i in range(number_of_RNNmodels):
+            globals()['RNNmodel_{}'.format(i + 1)], _ = rnnModel.train_RNNmodel(np.array([next_state]),
+                                                                                np.array([reward_pred]),
+                                                                                globals()['RNNmodel_{}'.format(i + 1)])
+        Ask_number += 1
+
+    score += reward_pred
 
     # If DONE, reset model, modify reward, record score
-
     if is_terminal:
+        reward_pred = -100
         env.reset()
-        steps = 0
         scores.append(score)  # Record score
         score = 0  # Reset score to zero
-    elif steps > 200:
-        env.reset()
-        steps = 0
-        scores.append(score)
-        score = 0
 
     add_to_memory(
-        iteration+1, mem_states, mem_actions, mem_rewards, mem_terminal, next_state, action, reward, is_terminal)
+        iteration+1, mem_states, mem_actions, mem_rewards, mem_terminal, next_state, action, reward_pred, is_terminal)
 
     # Make then fit a batch (gamma=0.99, num_in_batch=32)
     number_in_batch = 32
@@ -150,7 +245,7 @@ def q_iteration(steps, env, model, target_model, iteration, current_state,
 
     current_state = next_state
 
-    return steps, action, reward, is_terminal, epsilon, current_state, score, scores
+    return action, reward_pred, is_terminal, epsilon, current_state, score, scores, Ask_number, correct_pred
 
 
 def make_n_fit_batch(model, target_model, gamma, iteration,
@@ -221,8 +316,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('-r', '--num_rand_acts', help="Random actions before learning starts",
                         default = 100, type=int)
+    parser.add_argument('-s', '--save_after', help="Save after this number of training steps",
+                        default = 10**4, type=int)
     parser.add_argument('-m', '--mem_size', help="Size of the experience replay memory",
                         default = 10**4, type=int)
+    parser.add_argument('-sn', '--save_name', help="Name of the saved models", default=None, type=str)
     args = parser.parse_args()
 
     # Set up logging:
@@ -235,10 +333,11 @@ def main():
     Copy_model_after = 100
 
     number_random_actions = args.num_rand_acts  # Should be at least 33 (batch_size+1). Is this even needed for Cartpole?
+    save_model_after_steps = args.save_after  # Some use 25 here?
     mem_size = args.mem_size  # Some use 2k, or 50k, or 10k?
 
     logger.info(' num_rand_acts = %s, save_after = %s, mem_size = %s',
-                number_random_actions, mem_size)
+                number_random_actions, save_model_after_steps, mem_size)
 
     # Make the model
     model = make_model()
@@ -255,30 +354,92 @@ def main():
     # Create and reset the Atari env:
     env = gym.make('CartPole-v1')
     env.reset()
-    steps = 0
+
+    # Train RNN
+    # Initial settings
+
+    states = np.zeros((number, 4))
+    RNNrewards = np.zeros((number, 1))
+    # Generate training set
+    for i in range(number):
+        # Random action
+        action = env.action_space.sample()
+        next_state, reward, is_terminal, _ = env.step(action)
+        states[i] = next_state
+        state = next_state
+
+        if is_terminal:
+            reward = -100
+            state = env.reset()
+        RNNrewards[i] = reward
+
+    # Check and split date set into training and testing
+    train_input = states[0:round(0.8*number)]
+    train_output = RNNrewards[0:round(0.8*number)]
+    test_input = states[round(0.8*number)+1: number]
+    test_output = RNNrewards[round(0.8 * number) + 1: number]
+
+    rnnModel = RNNmodel()
+    # Generate 10 RNNmodels
+    for i in range(number_of_RNNmodels):
+        rnnmodel = rnnModel.make_RNNmodel()
+        globals()['RNNmodel_{}'.format(i + 1)], globals()['history_{}'.format(i + 1)] = rnnModel.train_RNNmodel(
+            train_input, train_output, rnnmodel)
+
+    # plot_history([('model1', history_1), ('model2', history_2), ('model3', history_3), ('model4', history_4),
+    #               ('model5', history_5), ('model6', history_6), ('model7', history_7), ('model8', history_8),
+    #               ('model9', history_9), ('model10', history_10)])
 
     # TODO: Rename i to iteration, and combined the two loops below. And factor out the random actions loop and the
     #  learning loop into two helper functions.
     # First make some random actions, and initially fill the memories with these:
+
+    # Create and reset the Atari env:
+    env = gym.make('CartPole-v1')
+    env.reset()
+    Ask_number = 0
+    correct_pred = 0
     for i in range(number_random_actions+1):
         iteration = i
         # Random action
         action = env.action_space.sample()
-        next_state, reward, is_terminal, _ = env.step(action)
-        steps += 1
+        next_state, _, is_terminal, _ = env.step(action) # I removed reward
         next_state = np.array([next_state])[0, :]  # Process state so that it's a numpy array, shape (4,)
-        if abs(next_state[0]) <= 1.2 and abs(next_state[2]) <= 6 * 2 * math.pi / 360:
-            reward = 2
+        IfAsk = False
+        predictions = []
+        for j in range(number_of_RNNmodels):
+            prediction = rnnModel.predict_RNNmodel(next_state, globals()['RNNmodel_{}'.format(j + 1)])
+            predictions.append(prediction)
+        if predictions.count(1) == number_of_RNNmodels:
+            reward_pred = 1
+        elif predictions.count(-100) == number_of_RNNmodels:
+            reward_pred = -100
+        else:
+            IfAsk = True
+            reward_pred = None
+
+
+        # Asking for reward, here we assume we know how to judge the reward!!!!!!!
+        if IfAsk:
+            if is_terminal:
+                reward_pred = -100
+            else:
+                reward_pred = 1
+            for i in range(number_of_RNNmodels):
+                globals()['RNNmodel_{}'.format(i + 1)], _ = rnnModel.train_RNNmodel(np.array([next_state]), np.array([reward_pred]),
+                                                                                    globals()['RNNmodel_{}'.format(i + 1)])
+            Ask_number += 1
 
         if is_terminal:
-            reward = -100
+            reward_pred = -100
             env.reset()
-        elif steps >200:
-            env.reset()
-            steps = 0
+
+            #scores.append(score)  # Record score
+            #score = 0  # Reset score to zero
 
         add_to_memory(
-            iteration, mem_states, mem_actions, mem_rewards, mem_terminal, next_state, action, reward, is_terminal)
+            iteration, mem_states, mem_actions, mem_rewards, mem_terminal, next_state, action, reward_pred, is_terminal)
+
 
     # Now do actions using the DQN, and train as we go...
     print('Finished the {} random actions...'.format(number_random_actions))
@@ -289,7 +450,7 @@ def main():
     score = 0
     scores = []
     plt.ion()
-    fig = plt.figure('Cartpole')
+    fig = plt.figure(1)
     for i in range(number_training_steps):
 
         iteration = number_random_actions + i
@@ -299,27 +460,41 @@ def main():
             target_model = keras.models.clone_model(model)
             target_model.set_weights(model.get_weights())
 
-        steps, action, reward, is_terminal, epsilon, current_state, score, scores = q_iteration(
-            steps, env, model, target_model, iteration, current_state,
-            mem_states, mem_actions, mem_rewards, mem_terminal, mem_size, score, scores)
+        action, reward_pred, is_terminal, epsilon, current_state, score, scores, Ask_number = q_iteration(
+            env, model, target_model, iteration, current_state,
+            mem_states, mem_actions, mem_rewards, mem_terminal, mem_size, score, scores, rnnModel, RNNmodel_1,
+                RNNmodel_2, RNNmodel_3, RNNmodel_4, RNNmodel_5, RNNmodel_6, RNNmodel_7, RNNmodel_8, RNNmodel_9,
+                                                   RNNmodel_10, Ask_number, correct_pred)
+
 
         # Print progress, time, and SAVE the model
         if (i + 1) % print_progress_after == 0:
             print('Training steps done: {}, Epsilon: {}'.format(i + 1, epsilon))
             print('Mean score = {}'.format(np.mean(scores)))
             print('Average scores for last 100 trials = {}'.format(np.mean(scores[::-1][0:100])))
+            if Ask_number != 0:
+                print('Ask_number = {}, Accuracy = {}'.format(Ask_number, correct_pred/Ask_number))
+            Test_acc = np.zeros((number_of_RNNmodels,1))
+            for j in range(number_of_RNNmodels):
+                test_acc, test_loss = rnnModel.test_RNNmodel(test_input,test_output,globals()['RNNmodel_{}'.format(j + 1)])
+                Test_acc[j] = test_acc
+            print('RNN Test mean accuracy:', np.mean(Test_acc))
             plt.clf()
             plt.plot(scores)
-            plt.title('Csrtpole')
             plt.ylabel('scores')
-            plt.xlabel('Number of Trials (Steps until {})'.format(i + 1))
+            plt.xlabel('Steps until {}'.format(i + 1))
             plt.pause(0.1)
+        if (i + 1) % save_model_after_steps == 0:
+            toc = time.time()
+            print('Time since last save: {}'.format(np.round(toc - tic)), end=" ")
+            tic = time.time()
+            # Save model:
+            file_name = os.path.join('saved_models', 'Run_{}_{}'.format(args.save_name, i + 1))
+            model.save(file_name)
+            print('; model saved')
 
-        if np.mean(scores[::-1][0:100]) > 390:
-            print('T-max = {}'.format(i+1))
-            break
     plt.ioff()
-    return i+1
+
 
 if __name__ == '__main__':
     main()
