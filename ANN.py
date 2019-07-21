@@ -9,14 +9,13 @@ from DQN import Agent_a
 import os
 import matplotlib.pyplot as plt
 
-iterations = 500
-# T_max = 23156
-T_max = 27147
-# T_max=np.zeros((5,1))
-# for i in range(5):
-#     t = cartpole.main()
-#     T_max[i] = t
-# T_max = np.mean(T_max)
+iterations = 1000
+
+T_max=np.zeros((5,1))
+for i in range(5):
+    t = cartpole.main()
+    T_max[i] = t
+T_max = np.mean(T_max)
 
 scores_Agent_f = Agent_f.Agent(T_max)
 # Use Agent_a to determine ratio
