@@ -1,0 +1,234 @@
+train = train[train.item_cnt_day<=1000]
+train = train[(train.item_price<100000) & (train.item_price>0)]
+items.drop(['item_name'],axis=1,inplace=True)
+cats['item_category_name'] = cats['item_category_name'].str.replace('"','')
+cats['split_name'] = cats['item_category_name'].str.split('-')
+cats['item_type'] = cats['split_name'].map(lambda x:x[0].strip())
+
+cats['item_subtype'] = cats['split_name'].map(lambda x:x[1].strip() if len(x)>1 else x[0].strip())
+
+# label encoder
+cats['item_type'] = LabelEncoder().fit_transform(cats['item_type'])
+cats['item_subtype'] = LabelEncoder().fit_transform(cats['item_subtype'])
+cats = cats[['item_category_id','item_type','item_subtype']]
+# 4 shops
+shops['city'] = shops['shop_name'].str.split(' ').map(lambda x: x[0])
+shops['shop_city'] =  LabelEncoder().fit_transform(shops['city'])
+
+shops['shop_type'] = shops['shop_name'].str.split(' ').map(lambda x: x[1] if len(x)>2 else 'None')
+shops['shop_type'] =  LabelEncoder().fit_transform(shops['shop_type'])
+
+shops = shops[['shop_id','shop_city','shop_type']]
+
+#5 test
+# add item_cnt_month
+tmp_df = train.groupby(['date_block_num','shop_id','item_id']).agg({'item_cnt_day':'sum', 'item_price':'mean'})
+tmp_df.columns = pd.Series(['item_cnt_month', 'item_month_avg_price'])
+tmp_df.reset_index(inplace=True)
+
+# 用join会提示特征名一致的报错，用merge更方便一点
+#train_df = pd.merge(train_df, tmp_df, on=['date_block_num','shop_id','item_id'],
+#                   how='left')
+train_df = tmp_df
+
+train_df['item_month_avg_price'] = train_df['item_month_avg_price'].fillna(0).astype(np.float32)
+train_df['item_cnt_month'] = train_df['item_cnt_month'].fillna(0).astype(np.float16)
+train_df['item_cnt_month'] = train_df['item_cnt_month'].clip(0,20)
+test['date_block_num'] = 34
+test['date_block_num'] = test['date_block_num'].astype(np.int8)
+test['shop_id'] = test['shop_id'].astype(np.int8)
+test['item_id'] = test['item_id'].astype(np.int16)
+
+df = pd.concat([train_df, test], ignore_index=True, sort=False,
+                keys=['date_block_num','shop_id','item_id'])
+
+df.fillna(0, inplace=True)
+
+#3
+# shop
+df = pd.merge(df, shops, on='shop_id',how='left')
+# item
+df = pd.merge(df, items, on='item_id',how='left')
+# item_category
+df = pd.merge(df, cats, on='item_category_id',how='left')
+
+df['shop_id'] = df['shop_id'].astype(np.int8)
+df['item_id'] = df['item_id'].astype(np.int16)
+df['date_block_num'] = df['date_block_num'].astype(np.int8)
+df['item_cnt_month'] = df['item_cnt_month'].astype(np.float16)
+df['item_month_avg_price'] = df['item_month_avg_price'].astype(np.float32)
+df['shop_city'] = df['shop_city'].astype(np.int8)
+df['shop_type'] = df['shop_type'].astype(np.int8)
+df['item_category_id'] = df['item_category_id'].astype(np.int8)
+df['item_type'] = df['item_type'].astype(np.int8)
+df['item_subtype'] = df['item_subtype'].astype(np.int8)
+
+#4 feature engineering
+
+
+# 考虑历史数值
+def lag_feature(df, lag_range, shift_feature):
+    tmp = df[['date_block_num','shop_id','item_id',shift_feature]]
+    for lag in lag_range:
+        #print('processing lag:',lag)
+        #### drop duplicate很重要 ######
+        shifted_df = tmp.copy().drop_duplicates()
+        shifted_df.columns = ['date_block_num','shop_id','item_id',shift_feature+'_lag_'+str(lag)]
+        shifted_df['date_block_num'] += lag
+        df = pd.merge(df, shifted_df, on=['date_block_num', 'shop_id', 'item_id'], how='left')
+    df = df.fillna(0)
+    return df
+
+# item_cnt_month
+df = lag_feature(df, [1,2,3], 'item_cnt_month')
+
+#item_price_month
+tmp = df.groupby(['date_block_num','item_id']).agg({'item_cnt_month':'mean'})
+tmp.columns = pd.Series(['item_avg_month'])
+tmp.reset_index(inplace=True)
+df = pd.merge(df, tmp, how='left', on=['date_block_num','item_id'])
+
+df = lag_feature(df, [1,2,3], 'item_avg_month')
+df.drop('item_avg_month', axis=1, inplace=True)
+
+# shop_month
+tmp = df.groupby(['date_block_num','shop_id']).agg({'item_cnt_month':'mean'})
+tmp.columns = pd.Series(['shop_cnt_month'])
+tmp.reset_index(inplace=True)
+df = pd.merge(df, tmp, how='left', on=['date_block_num','shop_id'])
+
+df = lag_feature(df, [1,2,3], 'shop_cnt_month')
+df.drop('shop_cnt_month', axis=1, inplace=True)
+
+#category_month
+tmp = df.groupby(['date_block_num','item_category_id']).agg({'item_cnt_month':'mean'})
+tmp.columns = pd.Series(['category_cnt_month'])
+tmp.reset_index(inplace=True)
+df = pd.merge(df, tmp, how='left', on=['date_block_num','item_category_id'])
+
+df = lag_feature(df, [1,2,3], 'category_cnt_month')
+df.drop('category_cnt_month', axis=1, inplace=True)
+
+#big_category_month
+tmp = df.groupby(['date_block_num','item_type']).agg({'item_cnt_month':'mean'})
+tmp.columns = pd.Series(['big_category_cnt_month'])
+tmp.reset_index(inplace=True)
+df = pd.merge(df, tmp, how='left', on=['date_block_num','item_type'])
+
+df = lag_feature(df, [1,2,3], 'big_category_cnt_month')
+df.drop('big_category_cnt_month', axis=1, inplace=True)
+
+#shop_city_month
+tmp = df.groupby(['date_block_num','shop_city']).agg({'item_cnt_month':'mean'})
+tmp.columns = pd.Series(['shop_city_cnt_month'])
+tmp.reset_index(inplace=True)
+df = pd.merge(df, tmp, how='left', on=['date_block_num','shop_city'])
+
+df = lag_feature(df, [1,2,3], 'shop_city_cnt_month')
+df.drop('shop_city_cnt_month', axis=1, inplace=True)
+
+# shop_type_month
+tmp = df.groupby(['date_block_num','shop_type']).agg({'item_cnt_month':'mean'})
+tmp.columns = pd.Series(['shop_type_cnt_month'])
+tmp.reset_index(inplace=True)
+df = pd.merge(df, tmp, how='left', on=['date_block_num','shop_type'])
+
+df = lag_feature(df, [1,2,3], 'shop_type_cnt_month')
+df.drop('shop_type_cnt_month', axis=1, inplace=True)
+
+# item city month
+tmp = df.groupby(['date_block_num','item_id', 'shop_city'])['item_cnt_month'].mean().reset_index().rename(columns={
+    "item_cnt_month": "item_city_cnt_month"}, errors="raise")
+
+df = pd.merge(df, tmp, on=['date_block_num','item_id', 'shop_city'], how='left')
+
+df['item_city_cnt_month'] = (df['item_city_cnt_month']
+                                .fillna(0)
+                                .astype(np.float16))
+
+df = lag_feature(df, [1,2,3], 'item_city_cnt_month')
+df.drop('item_city_cnt_month', axis=1, inplace=True)
+
+#item_shop_month
+item_id_target_mean = df.groupby(['date_block_num','item_id', 'shop_id'])['item_cnt_month'].mean().reset_index().rename(columns={
+    "item_cnt_month": "item_shop_target_enc"}, errors="raise")
+
+df = pd.merge(df, item_id_target_mean, on=['date_block_num','item_id', 'shop_id'], how='left')
+
+df['item_shop_target_enc'] = (df['item_shop_target_enc']
+                                .fillna(0)
+                                .astype(np.float16))
+
+df = lag_feature(df, [1, 2, 3], 'item_shop_target_enc')
+df.drop(['item_shop_target_enc'], axis=1, inplace=True)
+
+# item month
+tmp = df.groupby(['date_block_num']).agg({'item_cnt_month': ['mean']})
+tmp.columns = [ 'date_avg_item_cnt' ]
+tmp.reset_index(inplace=True)
+
+df = pd.merge(df, tmp, on=['date_block_num'], how='left')
+df['date_avg_item_cnt'] = df['date_avg_item_cnt'].astype(np.float16)
+df = lag_feature(df, [1,2,3], 'date_avg_item_cnt')
+df.drop(['date_avg_item_cnt'], axis=1, inplace=True)
+
+# shop_category_month
+tmp = df.groupby(['date_block_num', 'item_category_id','shop_id']).agg({'item_cnt_month': ['mean']})
+tmp.columns = [ 'date_cat_shop_avg_item_cnt' ]
+tmp.reset_index(inplace=True)
+
+df = pd.merge(df, tmp, on=['date_block_num', 'item_category_id','shop_id'], how='left')
+df['date_cat_shop_avg_item_cnt'] = df['date_cat_shop_avg_item_cnt'].astype(np.float16)
+df = lag_feature(df, [1,2,3], 'date_cat_shop_avg_item_cnt')
+df.drop(['date_cat_shop_avg_item_cnt'], axis=1, inplace=True)
+
+# item_category_month
+tmp = df.groupby(['date_block_num', 'item_id','item_type']).agg({'item_cnt_month': ['mean']})
+tmp.columns = [ 'date_item_type_avg_item_cnt' ]
+tmp.reset_index(inplace=True)
+
+df = pd.merge(df, tmp, on=['date_block_num','item_id','item_type'], how='left')
+df['date_item_type_avg_item_cnt'] = df['date_item_type_avg_item_cnt'].astype(np.float16)
+df = lag_feature(df, [1,2,3], 'date_item_type_avg_item_cnt')
+df.drop(['date_item_type_avg_item_cnt'], axis=1, inplace=True)
+
+# train model
+data = df[df.date_block_num >= 3]
+data.drop(['ID'],axis=1, inplace=True)
+
+X_train = data[data.date_block_num < 33].drop(['item_cnt_month'], axis=1)
+Y_train = data[data.date_block_num < 33]['item_cnt_month']
+X_valid = data[data.date_block_num == 33].drop(['item_cnt_month'], axis=1)
+Y_valid = data[data.date_block_num == 33]['item_cnt_month']
+X_test = data[data.date_block_num == 34].drop(['item_cnt_month'], axis=1)
+
+params = {
+     'objective': 'regression', #default:regression
+     'metric': 'rmse', #评价指标，mae,mse,binary_logloss, auc等
+     'num_leaves': 2 ** 7 - 1 #一颗树上最大的叶子数量，默认31. 由于lightGBM是leaves_wise生长，官方说法是要小于2^max_depth，否则可能会导致过拟合
+     'learning_rate': 0.003,# 通常用0.1， 0.001，0.003，0.005
+     'feature_fraction': 0.7, #表示每次迭代中随机选择80%的参数，即列来建树，0.8，0.7都可以
+     'bagging_fraction': 0.7, #每次迭代时用的数据比例，用于加快训练速度和减小过拟合
+     'bagging_freq': 5, #default=0, bagging频率，每n个interation后进行bagging
+     'seed': 1, #default=None,
+
+ }
+
+import lightgbm as lgb
+feature_name_indexes = ['shop_city','shop_type', 'item_category_id','item_type',]
+lgb_train = lgb.Dataset(X_train, Y_train)
+lgb_eval = lgb.Dataset(X_valid, Y_valid, reference=lgb_train)
+evals_result = {}
+
+gbm = lgb.train(
+        params,
+         lgb_train,
+         num_boost_round=2000,#迭代次数
+         valid_sets=(lgb_train, lgb_eval),
+         categorical_feature = feature_name_indexes,
+                 evals_result = evals_result,
+         early_stopping_rounds = 30 #改善停止迭代
+)
+
+
+
